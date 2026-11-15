@@ -1,4 +1,4 @@
-# app.py  - online / phone version (uses the browser camera via WebRTC)
+    # app.py  - online / phone version (uses the browser camera via WebRTC)
 import threading
 import time
 
@@ -38,7 +38,9 @@ st.markdown('<div class="main-title">🚘 AI DRIVER MONITORING SYSTEM</div>', un
 
 
 class DriverProcessor(VideoProcessorBase):
-    """Runs on every camera frame coming from the browser."""
+    """Runs on camera frames from the browser. Analysis is limited to ~10 times
+    per second so the video stays smooth, and counters are time-based so the
+    fatigue score does not depend on how fast the server is."""
 
     def __init__(self):
         self.face_mesh = initialize_face_mesh()
@@ -46,28 +48,29 @@ class DriverProcessor(VideoProcessorBase):
         self.status = "Normal"
         self.fatigue = 0.0
         self.gaze = "Center"
+        self._last_proc = 0.0
         self._prev = time.time()
+        self.fps = 0.0
 
     def reset(self):
         self.blinks = 0
         self.yawns = 0
-        self.closed_frames = 0
-        self.mouth_open_frames = 0
-        self.head_down_frames = 0
+        self.closed_frames = 0.0
+        self.mouth_open_frames = 0.0
+        self.head_down_frames = 0.0
         self.was_eye_closed = False
         self.was_yawning = False
 
-    def recv(self, frame: av.VideoFrame) -> av.VideoFrame:
-        img = frame.to_ndarray(format="bgr24")
+    def _analyze(self, img, step):
         img, results = process_frame(img, self.face_mesh)
-
         status, fatigue, gaze = "Normal", 0.0, "Center"
 
         if results and results.multi_face_landmarks:
             lm = results.multi_face_landmarks[0].landmark
             (status, fatigue, gaze, self.closed_frames, self.mouth_open_frames,
              self.head_down_frames, eye_closed, yawning) = analyze_landmarks(
-                lm, self.closed_frames, self.mouth_open_frames, self.head_down_frames)
+                lm, self.closed_frames, self.mouth_open_frames,
+                self.head_down_frames, step)
 
             if self.was_eye_closed and not eye_closed:
                 self.blinks += 1
@@ -76,18 +79,31 @@ class DriverProcessor(VideoProcessorBase):
                 self.yawns += 1
             self.was_yawning = yawning
         else:
-            self.head_down_frames += 1
-            if self.head_down_frames > 2:
+            # face not visible (head far down / turned away)
+            self.head_down_frames += step
+            if self.head_down_frames > 10:
                 status = "Danger"
-                fatigue = min(1.0, 0.40 + self.head_down_frames * 0.1)
+                fatigue = min(1.0, 0.40 + self.head_down_frames * 0.05)
                 gaze = "Down (Hidden)"
 
         self.status, self.fatigue, self.gaze = status, fatigue, gaze
 
+    def recv(self, frame: av.VideoFrame) -> av.VideoFrame:
+        img = frame.to_ndarray(format="bgr24")
         now = time.time()
-        fps = 1 / (now - self._prev) if now > self._prev else 0
+
+        # video fps (smoothed)
+        inst = 1 / (now - self._prev) if now > self._prev else 0
+        self.fps = 0.8 * self.fps + 0.2 * inst
         self._prev = now
-        img = draw_overlay(img, status, fps)
+
+        if now - self._last_proc >= 0.1:
+            dt = (now - self._last_proc) if self._last_proc else 0.1
+            self._last_proc = now
+            step = min(dt * 30.0, 6.0)   # "frames at 30 fps" that passed
+            self._analyze(img, step)
+
+        img = draw_overlay(img, self.status, self.fps)
         return av.VideoFrame.from_ndarray(img, format="bgr24")
 
 
@@ -100,7 +116,8 @@ ctx = webrtc_streamer(
     mode=WebRtcMode.SENDRECV,
     video_processor_factory=DriverProcessor,
     media_stream_constraints={
-        "video": {"facingMode": "user", "width": {"ideal": 640}, "height": {"ideal": 480}},
+        "video": {"facingMode": "user", "width": {"ideal": 320}, "height": {"ideal": 240},
+                  "frameRate": {"ideal": 15, "max": 20}},
         "audio": False,
     },
     rtc_configuration={"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]},
@@ -114,9 +131,16 @@ c3, c4 = st.columns(2)
 blink_box = c3.empty()
 yawn_box = c4.empty()
 sound_box = st.empty()
+test_box = st.empty()
 
-if st.button("🔄 Reset counters") and ctx.video_processor:
+b1, b2 = st.columns(2)
+if b1.button("🔄 Reset counters") and ctx.video_processor:
     ctx.video_processor.reset()
+if b2.button("🔊 Test sound"):
+    # tapping a button lets the browser allow sound; also checks your volume
+    with test_box:
+        st.audio(DANGER_BEEP, format="audio/wav", autoplay=True)
+sound_on = st.toggle("🔔 Sound alerts", value=True)
 
 
 def show_status(status: str):
@@ -142,7 +166,7 @@ if ctx.state.playing:
 
             now = time.time()
             gap = 0.9 if p.status == "Danger" else 1.8
-            if p.status in ("Warning", "Danger") and now - last_beep > gap:
+            if sound_on and p.status in ("Warning", "Danger") and now - last_beep > gap:
                 beep_count += 1
                 data = DANGER_BEEP if p.status == "Danger" else WARNING_BEEP
                 # tiny change in the bytes makes the browser replay the sound
@@ -150,9 +174,10 @@ if ctx.state.playing:
                 with sound_box:
                     st.audio(data, format="audio/wav", autoplay=True)
                 last_beep = now
-            elif p.status == "Normal":
+            elif p.status == "Normal" and now - last_beep > 2.0:
                 sound_box.empty()
-        time.sleep(0.25)
+        time.sleep(0.3)
 else:
     show_status("Normal")
     status_box.markdown('<div class="status-card status-normal">ℹ️ System Offline - tap START</div>', unsafe_allow_html=True)
+        
