@@ -1,5 +1,4 @@
-    # app.# app.py  - online / phone version (uses the browser camera via WebRTC)
-# app.py  - online / phone version (uses the browser camera via WebRTC)
+
 import threading
 import time
 
