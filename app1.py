@@ -8,7 +8,7 @@ from streamlit_webrtc import VideoProcessorBase, WebRtcMode, webrtc_streamer
 
 from detector import initialize_face_mesh, process_frame
 from fatigue import analyze_landmarks
-from utils import DANGER_BEEP, WARNING_BEEP, draw_overlay
+from driver_utils import DANGER_BEEP, WARNING_BEEP, draw_overlay
 
 st.set_page_config(
     page_title="AI Driver Monitoring System",
