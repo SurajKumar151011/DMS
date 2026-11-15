@@ -1,5 +1,4 @@
-# fatigue.py
-# fatigue.py
+
 import numpy as np
 
 def calculate_distance(p1, p2):
