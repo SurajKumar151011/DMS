@@ -1,14 +1,15 @@
-    # app.py  - online / phone version (uses the browser camera via WebRTC)
+    # app.# app.py  - online / phone version (uses the browser camera via WebRTC)
 import threading
 import time
 
 import av
+import streamlit.components.v1 as components
 import streamlit as st
 from streamlit_webrtc import VideoProcessorBase, WebRtcMode, webrtc_streamer
 
 from detector import initialize_face_mesh, process_frame
 from fatigue import analyze_landmarks
-from driver_utils import DANGER_BEEP, WARNING_BEEP, draw_overlay
+from driver_utils import draw_overlay
 
 st.set_page_config(
     page_title="AI Driver Monitoring System",
@@ -107,6 +108,31 @@ class DriverProcessor(VideoProcessorBase):
         return av.VideoFrame.from_ndarray(img, format="bgr24")
 
 
+def play_beep(box, kind: str):
+    """Beep (and vibrate) inside the phone's browser using JavaScript."""
+    if kind == "Danger":
+        freq, beeps, vib = 2200, 3, "[300,100,300,100,300]"
+    else:
+        freq, beeps, vib = 1200, 1, "[250]"
+    js = f"""<script>/*{time.time_ns()}*/
+    try {{
+      const C = window.AudioContext || window.webkitAudioContext;
+      const ctx = new C(); ctx.resume();
+      for (let i = 0; i < {beeps}; i++) {{
+        const o = ctx.createOscillator(), g = ctx.createGain();
+        o.type = 'square'; o.frequency.value = {freq};
+        g.gain.value = 0.5;
+        o.connect(g); g.connect(ctx.destination);
+        const t = ctx.currentTime + i * 0.35;
+        o.start(t); o.stop(t + 0.25);
+      }}
+    }} catch (e) {{}}
+    try {{ navigator.vibrate({vib}); }} catch (e) {{}}
+    </script>"""
+    with box:
+        components.html(js, height=0)
+
+
 st.caption("Tap START, allow camera access, and place your phone so your face is visible.")
 
 status_box = st.empty()
@@ -138,8 +164,7 @@ if b1.button("🔄 Reset counters") and ctx.video_processor:
     ctx.video_processor.reset()
 if b2.button("🔊 Test sound"):
     # tapping a button lets the browser allow sound; also checks your volume
-    with test_box:
-        st.audio(DANGER_BEEP, format="audio/wav", autoplay=True)
+    play_beep(test_box, "Danger")
 sound_on = st.toggle("🔔 Sound alerts", value=True)
 
 
@@ -154,7 +179,6 @@ def show_status(status: str):
 
 if ctx.state.playing:
     last_beep = 0.0
-    beep_count = 0
     while ctx.state.playing:
         p = ctx.video_processor
         if p is not None:
@@ -165,14 +189,9 @@ if ctx.state.playing:
             yawn_box.metric("Yawns", str(p.yawns))
 
             now = time.time()
-            gap = 0.9 if p.status == "Danger" else 1.8
+            gap = 1.4 if p.status == "Danger" else 2.0
             if sound_on and p.status in ("Warning", "Danger") and now - last_beep > gap:
-                beep_count += 1
-                data = DANGER_BEEP if p.status == "Danger" else WARNING_BEEP
-                # tiny change in the bytes makes the browser replay the sound
-                data = data + bytes(beep_count % 7)
-                with sound_box:
-                    st.audio(data, format="audio/wav", autoplay=True)
+                play_beep(sound_box, p.status)
                 last_beep = now
             elif p.status == "Normal" and now - last_beep > 2.0:
                 sound_box.empty()
@@ -180,4 +199,4 @@ if ctx.state.playing:
 else:
     show_status("Normal")
     status_box.markdown('<div class="status-card status-normal">ℹ️ System Offline - tap START</div>', unsafe_allow_html=True)
-        
+        py  - online / phone version (uses the browser camera via WebRTC)
