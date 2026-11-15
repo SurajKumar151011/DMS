@@ -1,10 +1,11 @@
 # fatigue.py
+# fatigue.py
 import numpy as np
 
 def calculate_distance(p1, p2):
     return np.sqrt((p1.x - p2.x)**2 + (p1.y - p2.y)**2)
 
-def analyze_landmarks(landmarks, closed_frames, mouth_open_frames, head_down_frames):
+def analyze_landmarks(landmarks, closed_frames, mouth_open_frames, head_down_frames, step=1.0):
     """
     Analyzes facial landmarks for blinks, yawns, head tilt, and gaze direction.
     Distinguishes normal eye blinks from continuous drowsy eye closures.
@@ -33,14 +34,14 @@ def analyze_landmarks(landmarks, closed_frames, mouth_open_frames, head_down_fra
     # 3. Eye Closed Tracking (EAR < 0.18 means eyes closed)
     eye_closed = ear < 0.18
     if eye_closed:
-        closed_frames += 1
+        closed_frames += step
     else:
         closed_frames = 0
 
     # 4. Yawn Tracking
     yawning = mar > 0.38
     if yawning:
-        mouth_open_frames += 1
+        mouth_open_frames += step
     else:
         mouth_open_frames = 0
 
@@ -55,7 +56,7 @@ def analyze_landmarks(landmarks, closed_frames, mouth_open_frames, head_down_fra
     is_head_down = head_ratio < 0.30 or nose_tip.y > 0.68
 
     if is_head_down:
-        head_down_frames += 1
+        head_down_frames += step
     else:
         head_down_frames = 0
 
